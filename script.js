@@ -176,9 +176,9 @@ function handlePhoto(file) {
    PREVIEW & QR
    ============================================ */
 function updatePreview() {
-  const name = (els.studentName.value.trim() || 'EMEKA ALIFO').toUpperCase();
+  const name = (els.studentName.value.trim() || 'JOHN OKAFOR .M.').toUpperCase();
   const id = els.studentId.value;
-  const addr = (els.studentAddress.value.trim() || '35 OKEYE STREET').toUpperCase();
+  const addr = (els.studentAddress.value.trim() || '65 VENN ROAD SOUTH').toUpperCase();
 
   els.dispName.textContent = name;
   els.dispId.textContent = id;
