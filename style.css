@@ -588,7 +588,7 @@ img { max-width:100%; display:block; }
   font-weight: 600;
 }
 
-.signature-block { text-align: right; }
+.signature-block { text-align: center; }
 
 .signature-stroke {
   font-family: 'Brush Script MT', 'Segoe Script', 'Dancing Script', cursive;
