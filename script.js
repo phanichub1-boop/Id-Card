@@ -74,12 +74,23 @@ const els = {
   shareEmail: document.getElementById('shareEmail'),
   shareCopy: document.getElementById('shareCopy'),
   shareNative: document.getElementById('shareNative'),
+  photoActions: document.getElementById('photoActions'),
+  cropPhotoBtn: document.getElementById('cropPhotoBtn'),
+  clearPhotoBtn: document.getElementById('clearPhotoBtn'),
+  cropOverlay: document.getElementById('cropOverlay'),
+  cropModal: document.getElementById('cropModal'),
+  closeCrop: document.getElementById('closeCrop'),
+  cropCanvas: document.getElementById('cropCanvas'),
+  cropZoom: document.getElementById('cropZoom'),
+  applyCropBtn: document.getElementById('applyCropBtn'),
+  cancelCropBtn: document.getElementById('cancelCropBtn'),
   toast: document.getElementById('toast'),
   toastMsg: document.getElementById('toastMsg'),
 };
 
 let photoDataUrl = null;
 let currentQR = null;
+let cropState = null;
 
 /* ============================================
    INIT
@@ -141,8 +152,29 @@ function attachListeners() {
   els.shareCopy.addEventListener('click', shareToClipboard);
   els.shareNative.addEventListener('click', shareNative);
 
+  els.cropPhotoBtn.addEventListener('click', () => {
+    if (photoDataUrl) initCropper(photoDataUrl);
+    else showToast('Upload a photo first');
+  });
+
+  els.clearPhotoBtn.addEventListener('click', clearPhoto);
+  els.cropOverlay.addEventListener('click', closeCropModal);
+  els.closeCrop.addEventListener('click', closeCropModal);
+  els.cancelCropBtn.addEventListener('click', closeCropModal);
+  els.applyCropBtn.addEventListener('click', applyCrop);
+  els.cropZoom.addEventListener('input', (event) => updateCropZoom(Number(event.target.value)));
+  els.cropCanvas.addEventListener('pointerdown', startCropDrag);
+  document.addEventListener('pointermove', moveCropDrag);
+  document.addEventListener('pointerup', stopCropDrag);
+  els.cropCanvas.addEventListener('touchstart', startCropDrag, { passive: false });
+  document.addEventListener('touchmove', moveCropDrag, { passive: false });
+  document.addEventListener('touchend', stopCropDrag);
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeShareModal();
+    if (e.key === 'Escape') {
+      closeShareModal();
+      closeCropModal();
+    }
   });
 }
 
@@ -166,10 +198,206 @@ function handlePhoto(file) {
     els.photoPlaceholder.style.display = 'none';
     els.thumbPreview.src = photoDataUrl;
     els.thumbPreview.classList.add('visible');
+    els.photoActions.hidden = false;
     showToast('Photo uploaded');
     updatePreview();
+    initCropper(photoDataUrl);
   };
   reader.readAsDataURL(file);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function initCropper(src) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    const canvas = els.cropCanvas;
+    const cropSize = Math.min(canvas.width, canvas.height);
+    // Compute a cover scale so the image fills the crop canvas while
+    // ensuring large images are scaled down and small images are scaled up.
+    const coverScale = Math.max(cropSize / img.width, cropSize / img.height);
+
+    cropState = {
+      image: img,
+      scale: coverScale,
+      minScale: coverScale,
+      maxScale: Math.max(coverScale * 3, coverScale + 1),
+      x: (canvas.width - img.width * coverScale) / 2,
+      y: (canvas.height - img.height * coverScale) / 2,
+      dragging: false,
+      startX: 0,
+      startY: 0,
+      offsetX: 0,
+      offsetY: 0,
+    };
+
+    els.cropZoom.value = cropState.scale.toFixed(2);
+    renderCropCanvas();
+    openCropModal();
+  };
+  img.src = src;
+}
+
+function openCropModal() {
+  els.cropOverlay.classList.add('active');
+  els.cropModal.classList.add('active');
+  els.cropModal.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeCropModal() {
+  els.cropOverlay.classList.remove('active');
+  els.cropModal.classList.remove('active');
+  els.cropModal.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+}
+
+function updateCropZoom(value) {
+  if (!cropState) return;
+  const canvas = els.cropCanvas;
+  const oldScale = cropState.scale;
+  const newScale = clamp(value, cropState.minScale, cropState.maxScale);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const relX = (centerX - cropState.x) / (cropState.image.width * oldScale);
+  const relY = (centerY - cropState.y) / (cropState.image.height * oldScale);
+
+  cropState.scale = newScale;
+  cropState.x = centerX - relX * cropState.image.width * newScale;
+  cropState.y = centerY - relY * cropState.image.height * newScale;
+  clampCropPosition();
+  renderCropCanvas();
+}
+
+function clampCropPosition() {
+  const canvas = els.cropCanvas;
+  const width = cropState.image.width * cropState.scale;
+  const height = cropState.image.height * cropState.scale;
+  const minX = Math.min(0, canvas.width - width);
+  const maxX = Math.max(0, canvas.width - width);
+  const minY = Math.min(0, canvas.height - height);
+  const maxY = Math.max(0, canvas.height - height);
+
+  cropState.x = clamp(cropState.x, minX, 0);
+  cropState.y = clamp(cropState.y, minY, 0);
+}
+
+function renderCropCanvas() {
+  if (!cropState) return;
+  const canvas = els.cropCanvas;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#f3f4f6';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(
+    cropState.image,
+    cropState.x,
+    cropState.y,
+    cropState.image.width * cropState.scale,
+    cropState.image.height * cropState.scale
+  );
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
+}
+
+function applyCrop() {
+  if (!cropState) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = 360;
+  canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(
+    cropState.image,
+    cropState.x,
+    cropState.y,
+    cropState.image.width * cropState.scale,
+    cropState.image.height * cropState.scale
+  );
+
+  photoDataUrl = canvas.toDataURL('image/png');
+  els.cardPhoto.src = photoDataUrl;
+  els.thumbPreview.src = photoDataUrl;
+  els.cardPhoto.classList.add('visible');
+  els.thumbPreview.classList.add('visible');
+  closeCropModal();
+  showToast('Photo cropped');
+  updatePreview();
+}
+
+function clearPhoto() {
+  photoDataUrl = null;
+  els.cardPhoto.src = '';
+  els.cardPhoto.classList.remove('visible');
+  els.photoPlaceholder.style.display = '';
+  els.thumbPreview.src = '';
+  els.thumbPreview.classList.remove('visible');
+  els.photoActions.hidden = true;
+  showToast('Photo removed');
+}
+
+function getCanvasPointerPosition(event) {
+  const rect = els.cropCanvas.getBoundingClientRect();
+  let clientX = event.clientX;
+  let clientY = event.clientY;
+
+  if (event.touches && event.touches[0]) {
+    clientX = event.touches[0].clientX;
+    clientY = event.touches[0].clientY;
+  }
+
+  return {
+    x: clientX - rect.left,
+    y: clientY - rect.top,
+  };
+}
+
+function startCropDrag(event) {
+  if (!cropState) return;
+  event.preventDefault();
+  cropState.dragging = true;
+  const pos = getCanvasPointerPosition(event);
+  cropState.startX = pos.x;
+  cropState.startY = pos.y;
+  cropState.offsetX = cropState.x;
+  cropState.offsetY = cropState.y;
+  els.cropCanvas.style.cursor = 'grabbing';
+}
+
+function moveCropDrag(event) {
+  if (!cropState || !cropState.dragging) return;
+  event.preventDefault();
+  const pos = getCanvasPointerPosition(event);
+  cropState.x = cropState.offsetX + (pos.x - cropState.startX);
+  cropState.y = cropState.offsetY + (pos.y - cropState.startY);
+  clampCropPosition();
+  renderCropCanvas();
+}
+
+function stopCropDrag() {
+  if (!cropState) return;
+  cropState.dragging = false;
+  els.cropCanvas.style.cursor = 'grab';
+}
+
+function moveCropDrag(event) {
+  if (!cropState || !cropState.dragging) return;
+  const pos = getCanvasPointerPosition(event);
+  cropState.x = cropState.offsetX + (pos.x - cropState.startX);
+  cropState.y = cropState.offsetY + (pos.y - cropState.startY);
+  clampCropPosition();
+  renderCropCanvas();
+}
+
+function stopCropDrag() {
+  if (!cropState) return;
+  cropState.dragging = false;
+  els.cropCanvas.style.cursor = 'grab';
 }
 
 /* ============================================
@@ -190,7 +418,7 @@ function updatePreview() {
 }
 
 function buildVerifyUrl() {
-  const base = 'https://phanichub1-boop.github.io/Phanic-Website-/';
+  const base = 'https://phanicglobal.com/';
   const params = new URLSearchParams({
     verify: 'student',
     name: els.studentName.value.trim() || 'Student',
@@ -198,6 +426,49 @@ function buildVerifyUrl() {
   });
   return `${base}?${params.toString()}`;
 }
+
+/* ============================================
+   REMOTE VERIFY MODAL SNIPPET
+   Copy this to phanicglobal.com to show confirmation when scanning the QR code.
+============================================ */
+function attachVerifyModalSnippet() {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(location.search);
+  if (params.get('verify') !== 'student') return;
+
+  const studentName = decodeURIComponent(params.get('name') || 'Unknown Student');
+  const studentId = decodeURIComponent(params.get('sid') || 'Unknown ID');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'verifyOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(5px);z-index:9998;';
+
+  const modal = document.createElement('div');
+  modal.id = 'verifyModal';
+  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:24px;padding:2.5rem;width:90%;max-width:420px;z-index:9999;box-shadow:0 25px 50px rgba(0,0,0,0.3);text-align:center;font-family:Satoshi,Inter,sans-serif;';
+  modal.innerHTML = `
+    <div style="width:64px;height:64px;background:#d1fae5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;color:#059669;">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    </div>
+    <h3 style="font-size:1.3rem;font-weight:800;margin-bottom:0.85rem;color:#111827;">Student Verified</h3>
+    <p style="font-size:1rem;line-height:1.75;color:#374151;margin-bottom:1.75rem;">
+      <strong style="color:#111827;">${studentName}</strong><br />
+      ID <strong style="color:#b91c3c;">${studentId}</strong><br />
+      is a bonafide student of <strong>Phanic Computer Hub</strong>.
+    </p>
+    <button id="closeVerify" style="padding:0.9rem 1.75rem;background:linear-gradient(135deg,#9e1b32,#b91c3c);color:#fff;border:none;border-radius:14px;font-weight:700;font-size:0.95rem;cursor:pointer;">Close</button>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.appendChild(modal);
+  document.getElementById('closeVerify').onclick = () => {
+    overlay.remove();
+    modal.remove();
+    window.history.replaceState({}, '', location.pathname);
+  };
+}
+
+document.addEventListener('DOMContentLoaded', attachVerifyModalSnippet);
 
 function generateQR() {
   els.qrBox.innerHTML = '';

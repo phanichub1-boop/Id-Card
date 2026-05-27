@@ -104,6 +104,14 @@
             <p>Tap or drag photo here</p>
             <small>JPG / PNG • Max 5 MB</small>
           </div>
+          <div class="photo-actions" id="photoActions" hidden>
+            <button class="btn btn-secondary" id="cropPhotoBtn" type="button">
+              Crop / Reposition Photo
+            </button>
+            <button class="btn btn-secondary" id="clearPhotoBtn" type="button">
+              Remove Photo
+            </button>
+          </div>
         </div>
 
         <button class="btn btn-primary" id="updateBtn" type="button">
@@ -243,7 +251,7 @@
 
                 <div class="card-qr">
                   <div class="qr-box" id="qrBox"></div>
-                  <div class="qr-caption">Scan to Verify</div>
+                  <div class="qr-caption">Scan to verify at phanicglobal.com</div>
                 </div>
               </div>
             </div>
@@ -381,6 +389,50 @@
           More Options
         </button>
       </div>
+    </div>
+
+    <!-- Crop Modal -->
+    <div class="modal-overlay" id="cropOverlay" aria-hidden="true"></div>
+    <div
+      class="modal crop-modal"
+      id="cropModal"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+    >
+      <button
+        class="modal-close"
+        id="closeCrop"
+        aria-label="Close crop dialog"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+      <h3>Crop passport photo</h3>
+      <p class="modal-note">Drag the photo to center the face, then adjust zoom and apply.</p>
+      <div class="crop-canvas-wrap">
+        <canvas id="cropCanvas" width="360" height="360" aria-label="Photo crop preview"></canvas>
+      </div>
+      <div class="crop-controls">
+        <label for="cropZoom">Zoom</label>
+        <input type="range" id="cropZoom" min="1" max="2.5" step="0.01" value="1" />
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="applyCropBtn" type="button">Apply Crop</button>
+        <button class="btn btn-secondary" id="cancelCropBtn" type="button">Cancel</button>
+      </div>
+      <p class="modal-footnote">Background removal can be added later using an external image service.</p>
     </div>
 
     <!-- Toast -->
