@@ -46,10 +46,17 @@
    </script>
    ---------------------------------------------------------- */
 
+const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSJQD5afdvI_-8W-2m3lqfuXU76v8TYDm7YfZfIzI0s5VYLwbkx2yXmmMB6MvkLk0us1rREgoq5rCTH/pub?output=csv';
+const SUGGESTED_ID_COUNT = 9999;
+
 const els = {
   studentName: document.getElementById('studentName'),
   studentId: document.getElementById('studentId'),
+  studentIdList: document.getElementById('studentIdList'),
+  studentEmail: document.getElementById('studentEmail'),
   studentAddress: document.getElementById('studentAddress'),
+  verifyBtn: document.getElementById('verifyBtn'),
+  verificationStatus: document.getElementById('verificationStatus'),
   photoInput: document.getElementById('photoInput'),
   uploadZone: document.getElementById('uploadZone'),
   thumbPreview: document.getElementById('thumbPreview'),
@@ -91,37 +98,117 @@ const els = {
 let photoDataUrl = null;
 let currentQR = null;
 let cropState = null;
+let sheetRows = [];
+let sheetLoaded = false;
+let authState = {
+  verified: false,
+  studentId: null,
+  email: null,
+};
 
 /* ============================================
    INIT
    ============================================ */
 function init() {
-  populateIds();
+  populateIdSuggestions();
   attachListeners();
+  setUnverifiedState('Loading student database...');
   updatePreview();
+  loadSheetData();
 }
 
-function populateIds() {
+function populateIdSuggestions() {
   const frag = document.createDocumentFragment();
-  for (let i = 1; i <= 1000; i++) {
+  for (let i = 1; i <= SUGGESTED_ID_COUNT; i++) {
     const opt = document.createElement('option');
-    const num = String(i).padStart(3, '0');
-    opt.value = `STU${num}`;
-    opt.textContent = `STU${num}`;
+    opt.value = `PHA${String(i).padStart(3, '0')}`;
     frag.appendChild(opt);
   }
-  els.studentId.appendChild(frag);
-  els.studentId.value = 'STU005';
+  els.studentIdList.appendChild(frag);
+}
+
+async function loadSheetData() {
+  try {
+    const response = await fetch(SHEET_CSV_URL, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Sheet CSV request failed: ${response.status}`);
+    }
+    const csvText = await response.text();
+    const rows = parseCsv(csvText);
+    if (rows.length < 2) {
+      throw new Error('Sheet CSV contains no data');
+    }
+
+    const headers = rows[0].map((header) => header.trim().toLowerCase());
+    const emailIndex = headers.findIndex((text) => /email/.test(text));
+    const regIndex = headers.findIndex((text) => /(reg(?:istration)?\s*number|registration|student\s*id|id|reg\s*no|regno|registration\s*no)/.test(text));
+    if (emailIndex === -1 || regIndex === -1) {
+      throw new Error('Sheet CSV is missing required email or registration columns');
+    }
+
+    sheetRows = rows.slice(1).map((row) => ({
+      email: String(row[emailIndex] || '').trim().toLowerCase(),
+      studentId: normalizeStudentId(String(row[regIndex] || '').trim()),
+    })).filter((entry) => entry.email && entry.studentId);
+
+    sheetLoaded = true;
+    els.verifyBtn.disabled = false;
+    setUnverifiedState('Ready to verify');
+  } catch (error) {
+    console.error(error);
+    sheetLoaded = false;
+    els.verifyBtn.disabled = true;
+    setUnverifiedState('Unable to load student database');
+  }
+}
+
+function parseCsv(text) {
+  const rows = [];
+  const lines = text.replace(/\r/g, '').split('\n');
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        values.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current);
+    rows.push(values);
+  }
+  return rows;
 }
 
 /* ============================================
    LISTENERS
    ============================================ */
 function attachListeners() {
-  [els.studentName, els.studentId, els.studentAddress].forEach(el => {
+  [els.studentName, els.studentAddress, els.studentId].forEach(el => {
     el.addEventListener('input', updatePreview);
   });
 
+  [els.studentId, els.studentEmail].forEach(el => {
+    el.addEventListener('input', () => {
+      if (authState.verified) {
+        setUnverifiedState('Student data changed. Please verify again.');
+      }
+    });
+  });
+
+  els.verifyBtn.addEventListener('click', verifyStudent);
   els.photoInput.addEventListener('change', (e) => handlePhoto(e.target.files[0]));
   
   ['dragenter','dragover','dragleave','drop'].forEach(evt => {
@@ -136,6 +223,10 @@ function attachListeners() {
   els.uploadZone.addEventListener('drop', (e) => handlePhoto(e.dataTransfer.files[0]));
 
   els.updateBtn.addEventListener('click', () => {
+    if (!authState.verified) {
+      showToast('Verify student ID before updating the ID card.');
+      return;
+    }
     els.updateBtn.classList.add('loading');
     setTimeout(() => { updatePreview(); els.updateBtn.classList.remove('loading'); showToast('Preview refreshed'); }, 300);
   });
@@ -153,6 +244,10 @@ function attachListeners() {
   els.shareNative.addEventListener('click', shareNative);
 
   els.cropPhotoBtn.addEventListener('click', () => {
+    if (!authState.verified) {
+      showToast('Verify student ID before cropping the photo.');
+      return;
+    }
     if (photoDataUrl) initCropper(photoDataUrl);
     else showToast('Upload a photo first');
   });
@@ -182,6 +277,10 @@ function attachListeners() {
    PHOTO
    ============================================ */
 function handlePhoto(file) {
+  if (!authState.verified) {
+    showToast('Verify student ID before uploading a photo.');
+    return;
+  }
   if (!file || !file.type.startsWith('image/')) {
     showToast('Please upload a valid image');
     return;
@@ -216,15 +315,13 @@ function initCropper(src) {
   img.onload = () => {
     const canvas = els.cropCanvas;
     const cropSize = Math.min(canvas.width, canvas.height);
-    // Compute a cover scale so the image fills the crop canvas while
-    // ensuring large images are scaled down and small images are scaled up.
     const coverScale = Math.max(cropSize / img.width, cropSize / img.height);
 
     cropState = {
       image: img,
       scale: coverScale,
-      minScale: coverScale,
-      maxScale: Math.max(coverScale * 3, coverScale + 1),
+      minScale: 0.5,
+      maxScale: 3,
       x: (canvas.width - img.width * coverScale) / 2,
       y: (canvas.height - img.height * coverScale) / 2,
       dragging: false,
@@ -234,6 +331,8 @@ function initCropper(src) {
       offsetY: 0,
     };
 
+    els.cropZoom.min = cropState.minScale.toFixed(2);
+    els.cropZoom.max = cropState.maxScale.toFixed(2);
     els.cropZoom.value = cropState.scale.toFixed(2);
     renderCropCanvas();
     openCropModal();
@@ -260,14 +359,25 @@ function updateCropZoom(value) {
   const canvas = els.cropCanvas;
   const oldScale = cropState.scale;
   const newScale = clamp(value, cropState.minScale, cropState.maxScale);
+  
+  if (oldScale === 0) return;
+  
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
-  const relX = (centerX - cropState.x) / (cropState.image.width * oldScale);
-  const relY = (centerY - cropState.y) / (cropState.image.height * oldScale);
-
+  const imageWidth = cropState.image.width * oldScale;
+  const imageHeight = cropState.image.height * oldScale;
+  
+  const anchorX = centerX - cropState.x;
+  const anchorY = centerY - cropState.y;
+  
+  const scaleFactor = newScale / oldScale;
+  const newAnchorX = anchorX * scaleFactor;
+  const newAnchorY = anchorY * scaleFactor;
+  
   cropState.scale = newScale;
-  cropState.x = centerX - relX * cropState.image.width * newScale;
-  cropState.y = centerY - relY * cropState.image.height * newScale;
+  cropState.x = centerX - newAnchorX;
+  cropState.y = centerY - newAnchorY;
+  
   clampCropPosition();
   renderCropCanvas();
 }
@@ -385,36 +495,107 @@ function stopCropDrag() {
   els.cropCanvas.style.cursor = 'grab';
 }
 
-function moveCropDrag(event) {
-  if (!cropState || !cropState.dragging) return;
-  const pos = getCanvasPointerPosition(event);
-  cropState.x = cropState.offsetX + (pos.x - cropState.startX);
-  cropState.y = cropState.offsetY + (pos.y - cropState.startY);
-  clampCropPosition();
-  renderCropCanvas();
-}
-
-function stopCropDrag() {
-  if (!cropState) return;
-  cropState.dragging = false;
-  els.cropCanvas.style.cursor = 'grab';
-}
 
 /* ============================================
    PREVIEW & QR
    ============================================ */
 function updatePreview() {
-  const name = (els.studentName.value.trim() || 'JOHN OKAFOR .M.').toUpperCase();
-  const id = els.studentId.value;
-  const addr = (els.studentAddress.value.trim() || '65 VENN ROAD SOUTH').toUpperCase();
+  const name = (els.studentName.value.trim() || 'STUDENT NAME').toUpperCase();
+  const rawId = els.studentId.value.trim().toUpperCase();
+  const id = normalizeStudentId(rawId) || rawId || 'PHA001';
+  const addr = (els.studentAddress.value.trim() || 'ADDRESS LINE').toUpperCase();
 
   els.dispName.textContent = name;
   els.dispId.textContent = id;
   els.dispAddress.textContent = addr;
+  document.getElementById('backRegNumber').textContent = id;
 
   generateQR();
   els.statusBadge.textContent = 'Updated';
   setTimeout(() => els.statusBadge.textContent = 'Ready', 1200);
+}
+
+function normalizeStudentId(value) {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim().toUpperCase().replace(/\s+/g, '');
+  if (!trimmed.startsWith('PHA')) return null;
+  const digits = trimmed.slice(3).replace(/^0+/, '');
+  if (!/^[0-9]+$/.test(digits)) return null;
+  return digits.length <= 3 ? `PHA${digits.padStart(3, '0')}` : `PHA${digits}`;
+}
+
+function validateEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim());
+}
+
+function setVerifiedState(studentId, email) {
+  authState.verified = true;
+  authState.studentId = studentId;
+  authState.email = email;
+  updateVerificationStatus();
+  toggleFormControls(true);
+}
+
+function setUnverifiedState(message = 'Not verified') {
+  authState.verified = false;
+  authState.studentId = null;
+  authState.email = null;
+  updateVerificationStatus(message);
+  toggleFormControls(false);
+}
+
+function updateVerificationStatus(message) {
+  if (authState.verified) {
+    els.verificationStatus.textContent = `Verified — ${authState.studentId}`;
+    els.verificationStatus.classList.add('verified');
+  } else {
+    els.verificationStatus.textContent = message || 'Not verified';
+    els.verificationStatus.classList.remove('verified');
+  }
+}
+
+function toggleFormControls(enabled) {
+  [els.studentName, els.studentAddress, els.photoInput, els.updateBtn, els.downloadFrontBtn, els.downloadBackBtn, els.printBtn, els.shareBtn, els.cropPhotoBtn].forEach(el => {
+    if (!el) return;
+    el.disabled = !enabled;
+  });
+}
+
+async function verifyStudent() {
+  const rawId = els.studentId.value;
+  const email = els.studentEmail.value.trim().toLowerCase();
+  const normalizedId = normalizeStudentId(rawId);
+
+  if (!normalizedId || !validateEmail(email)) {
+    showToast('Enter a valid PHA ID and email');
+    return;
+  }
+
+  if (!sheetLoaded) {
+    showToast('Student database not loaded yet');
+    return;
+  }
+
+  els.studentId.value = normalizedId;
+  updateVerificationStatus('Verifying...');
+  els.verifyBtn.disabled = true;
+
+  try {
+    const match = sheetRows.some((record) => record.email === email && record.studentId === normalizedId);
+    if (match) {
+      setVerifiedState(normalizedId, email);
+      showToast('Student verified successfully');
+    } else {
+      setUnverifiedState('Invalid ID or email');
+      showToast('Student ID and email do not match our records');
+    }
+  } catch (error) {
+    console.error(error);
+    setUnverifiedState('Verification error');
+    showToast('Unable to verify student at this time');
+  } finally {
+    els.verifyBtn.disabled = false;
+  }
 }
 
 function buildVerifyUrl() {
@@ -422,7 +603,7 @@ function buildVerifyUrl() {
   const params = new URLSearchParams({
     verify: 'student',
     name: els.studentName.value.trim() || 'Student',
-    sid: els.studentId.value,
+    sid: normalizeStudentId(els.studentId.value) || 'PHA001',
   });
   return `${base}?${params.toString()}`;
 }
@@ -487,9 +668,19 @@ function generateQR() {
    DOWNLOAD (Front / Back separately)
    ============================================ */
 async function downloadSide(side) {
+  if (!authState.verified) {
+    showToast('Verify student ID before downloading.');
+    return;
+  }
+
   if (!els.studentName.value.trim()) {
     showToast('Enter student name first');
     els.studentName.focus();
+    return;
+  }
+
+  if (!photoDataUrl) {
+    showToast('Upload a photo before downloading');
     return;
   }
 
@@ -505,6 +696,8 @@ async function downloadSide(side) {
       scale: 3,
       useCORS: true,
       backgroundColor: '#ffffff',
+      scrollX: -window.scrollX,
+      scrollY: -window.scrollY,
       logging: false,
     });
 
@@ -526,11 +719,22 @@ async function downloadSide(side) {
    PRINT
    ============================================ */
 function printCards() {
+  if (!authState.verified) {
+    showToast('Verify student ID before printing.');
+    return;
+  }
   if (!els.studentName.value.trim()) {
     showToast('Enter student name first');
     els.studentName.focus();
     return;
   }
+  if (!photoDataUrl) {
+    showToast('Upload a photo before printing');
+    return;
+  }
+
+  // Force a quick preview update so both cards are current before printing.
+  updatePreview();
   window.print();
 }
 
@@ -538,6 +742,10 @@ function printCards() {
    SHARE
    ============================================ */
 function openShare() {
+  if (!authState.verified) {
+    showToast('Verify student ID before sharing.');
+    return;
+  }
   els.shareOverlay.classList.add('active');
   els.shareModal.classList.add('active');
   els.shareModal.setAttribute('aria-hidden', 'false');

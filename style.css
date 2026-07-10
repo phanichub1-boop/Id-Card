@@ -154,6 +154,46 @@ img { max-width:100%; display:block; }
   padding-right: 2.5rem;
 }
 
+.verify-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.id-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 0.95rem;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-weight: 700;
+  font-size: 0.85rem;
+  min-height: 44px;
+}
+
+.id-status.verified {
+  background: #dcfce7;
+  color: #047857;
+  border: 1px solid #86efac;
+}
+
+.form-group input:disabled,
+.form-group select:disabled {
+  background: #f9fafb;
+  cursor: not-allowed;
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .upload-zone {
   border: 2px dashed var(--border);
   border-radius: 12px;
@@ -523,10 +563,11 @@ img { max-width:100%; display:block; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0.14in 0.18in 0.1in;
+  padding: 0.12in 0.16in 0.09in;
   position: relative;
   z-index: 1;
   text-align: center;
+  gap: 0.05in;
 }
 
 .back-logo {
@@ -558,6 +599,24 @@ img { max-width:100%; display:block; }
   color: #4b5563;
   line-height: 1.45;
   margin-bottom: 0.08in;
+}
+
+.back-return strong {
+  font-weight: 700;
+  color: #111827;
+}
+
+.back-reg-number {
+  font-size: 0.087in;
+  color: var(--text-secondary);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-bottom: 0.06in;
+}
+
+.back-reg-number span {
+  color: var(--primary);
+  font-weight: 800;
 }
 
 /* Socials — SMALLER */
@@ -601,25 +660,22 @@ img { max-width:100%; display:block; }
   font-weight: 600;
 }
 
-.signature-block { text-align: center; }
-
-.signature-stroke {
-  font-family: 'Brush Script MT', 'Segoe Script', 'Dancing Script', cursive;
-  font-size: 0.13in;
-  color: #4b5563;
-  line-height: 1;
-  margin-bottom: 0.02in;
-  display: inline-block;
-  transform: rotate(-1deg);
-  opacity: 0.9;
+.signature-block {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  text-align: right;
+  gap: 0.05in;
 }
 
-.signature-name {
-  font-size: 0.09in;
-  font-weight: 800;
-  color: #111827;
-  line-height: 1.2;
-}
+.signature-image {
+  width: 0.6in;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  padding-left:10px;
+  object-fit: contain;
+  }
 
 .signature-role {
   font-size: 0.075in;
@@ -831,6 +887,19 @@ img { max-width:100%; display:block; }
    PRINT
    ============================================ */
 @media print {
+  @page {
+    size: auto;
+    margin: 0.4in;
+  }
+
+  html, body {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: #111827;
+  }
+
   .app-header,
   .form-panel,
   .preview-header,
@@ -841,8 +910,27 @@ img { max-width:100%; display:block; }
     display: none !important;
   }
 
-  body { background: white; color: #111827; }
+  .preview-stage {
+    overflow: visible !important;
+    padding: 0 !important;
+    justify-content: center;
+  }
 
+  .capture-area {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5in;
+  }
+
+  .id-card-front,
+  .id-card-back {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    page-break-after: avoid;
+    margin: 0 auto;
+  }
   .container {
     display: block;
     padding: 0;
