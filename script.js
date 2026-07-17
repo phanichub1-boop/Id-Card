@@ -55,6 +55,7 @@ const els = {
   studentIdList: document.getElementById('studentIdList'),
   studentEmail: document.getElementById('studentEmail'),
   studentAddress: document.getElementById('studentAddress'),
+  orientationSelect: document.getElementById('orientationSelect'),
   verifyBtn: document.getElementById('verifyBtn'),
   verificationStatus: document.getElementById('verificationStatus'),
   photoInput: document.getElementById('photoInput'),
@@ -68,6 +69,9 @@ const els = {
   qrBox: document.getElementById('qrBox'),
   idCardFront: document.getElementById('idCardFront'),
   idCardBack: document.getElementById('idCardBack'),
+  profileSelect: document.getElementById('profileSelect'),
+  saveProfileBtn: document.getElementById('saveProfileBtn'),
+  downloadPdfBtn: document.getElementById('downloadPdfBtn'),
   statusBadge: document.getElementById('statusBadge'),
   updateBtn: document.getElementById('updateBtn'),
   downloadFrontBtn: document.getElementById('downloadFrontBtn'),
@@ -109,12 +113,22 @@ let authState = {
 /* ============================================
    INIT
    ============================================ */
+const STORAGE_KEY = 'phanic-id-profiles';
+
 function init() {
   populateIdSuggestions();
+  loadSavedProfiles();
   attachListeners();
+  setCardOrientation();
   setUnverifiedState('Loading student database...');
   updatePreview();
+  updateSaveProfileButton();
   loadSheetData();
+}
+
+function setCardOrientation() {
+  const orientation = els.orientationSelect?.value || 'landscape';
+  document.body.classList.toggle('orientation-portrait', orientation === 'portrait');
 }
 
 function populateIdSuggestions() {
@@ -222,6 +236,18 @@ function attachListeners() {
   });
   els.uploadZone.addEventListener('drop', (e) => handlePhoto(e.dataTransfer.files[0]));
 
+  els.orientationSelect.addEventListener('change', () => {
+    setCardOrientation();
+    updatePreview();
+  });
+
+  els.saveProfileBtn.addEventListener('click', saveProfile);
+  els.profileSelect.addEventListener('change', loadProfileFromSelect);
+
+  [els.studentName, els.studentAddress, els.studentId, els.studentEmail].forEach(el => {
+    el.addEventListener('input', updateSaveProfileButton);
+  });
+
   els.updateBtn.addEventListener('click', () => {
     if (!authState.verified) {
       showToast('Verify student ID before updating the ID card.');
@@ -233,6 +259,7 @@ function attachListeners() {
 
   els.downloadFrontBtn.addEventListener('click', () => downloadSide('front'));
   els.downloadBackBtn.addEventListener('click', () => downloadSide('back'));
+  els.downloadPdfBtn.addEventListener('click', downloadCombinedPdf);
   els.printBtn.addEventListener('click', printCards);
   els.shareBtn.addEventListener('click', openShare);
 
@@ -555,7 +582,7 @@ function updateVerificationStatus(message) {
 }
 
 function toggleFormControls(enabled) {
-  [els.studentName, els.studentAddress, els.photoInput, els.updateBtn, els.downloadFrontBtn, els.downloadBackBtn, els.printBtn, els.shareBtn, els.cropPhotoBtn].forEach(el => {
+  [els.studentName, els.studentAddress, els.photoInput, els.updateBtn, els.downloadFrontBtn, els.downloadBackBtn, els.downloadPdfBtn, els.printBtn, els.shareBtn, els.cropPhotoBtn].forEach(el => {
     if (!el) return;
     el.disabled = !enabled;
   });
@@ -608,6 +635,196 @@ function buildVerifyUrl() {
   return `${base}?${params.toString()}`;
 }
 
+function getStoredProfiles() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProfiles(profiles) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles));
+  } catch (error) {
+    console.error('Unable to save profiles', error);
+  }
+}
+
+function loadSavedProfiles() {
+  const profiles = getStoredProfiles();
+  const frag = document.createDocumentFragment();
+  const emptyOption = document.createElement('option');
+  emptyOption.value = '';
+  emptyOption.textContent = 'Select saved profile';
+  frag.appendChild(emptyOption);
+
+  profiles.forEach((profile, index) => {
+    const option = document.createElement('option');
+    option.value = profile.id || `profile-${index}`;
+    option.textContent = `${profile.studentId} — ${profile.studentName}`;
+    option.dataset.profileIndex = index;
+    frag.appendChild(option);
+  });
+
+  els.profileSelect.innerHTML = '';
+  els.profileSelect.appendChild(frag);
+}
+
+function updateSaveProfileButton() {
+  const hasName = Boolean(els.studentName.value.trim());
+  const hasId = Boolean(els.studentId.value.trim());
+  els.saveProfileBtn.disabled = !(hasName && hasId);
+}
+
+function saveProfile() {
+  const studentId = normalizeStudentId(els.studentId.value.trim());
+  const studentName = els.studentName.value.trim();
+  const studentEmail = els.studentEmail.value.trim();
+  const studentAddress = els.studentAddress.value.trim();
+  const orientation = els.orientationSelect.value;
+  const photo = photoDataUrl || '';
+
+  if (!studentId || !studentName) {
+    showToast('Name and student ID are required');
+    return;
+  }
+
+  const profiles = getStoredProfiles();
+  const profileId = studentId;
+  const existingIndex = profiles.findIndex((profile) => profile.id === profileId);
+  const record = {
+    id: profileId,
+    studentId,
+    studentName,
+    studentEmail,
+    studentAddress,
+    orientation,
+    photoDataUrl: photo,
+    savedAt: new Date().toISOString(),
+  };
+
+  if (existingIndex > -1) {
+    profiles[existingIndex] = record;
+  } else {
+    profiles.push(record);
+  }
+
+  saveProfiles(profiles);
+  loadSavedProfiles();
+  els.profileSelect.value = profileId;
+  showToast('Profile saved');
+}
+
+function loadProfileFromSelect() {
+  const selectedValue = els.profileSelect.value;
+  if (!selectedValue) return;
+
+  const profiles = getStoredProfiles();
+  const profile = profiles.find((p) => p.id === selectedValue);
+  if (!profile) {
+    showToast('Saved profile not found');
+    return;
+  }
+
+  els.studentId.value = profile.studentId || '';
+  els.studentEmail.value = profile.studentEmail || '';
+  els.studentName.value = profile.studentName || '';
+  els.studentAddress.value = profile.studentAddress || '';
+  if (profile.orientation) {
+    els.orientationSelect.value = profile.orientation;
+    setCardOrientation();
+  }
+  if (profile.photoDataUrl) {
+    photoDataUrl = profile.photoDataUrl;
+    els.cardPhoto.src = photoDataUrl;
+    els.cardPhoto.classList.add('visible');
+    els.photoPlaceholder.style.display = 'none';
+    els.thumbPreview.src = photoDataUrl;
+    els.thumbPreview.classList.add('visible');
+    els.photoActions.hidden = false;
+  }
+
+  setUnverifiedState('Loaded profile. Verify before export.');
+  updatePreview();
+  updateSaveProfileButton();
+}
+
+async function downloadCombinedPdf() {
+  if (!authState.verified) {
+    showToast('Verify student ID before downloading a combined PDF.');
+    return;
+  }
+
+  if (!els.studentName.value.trim()) {
+    showToast('Enter student name first.');
+    els.studentName.focus();
+    return;
+  }
+
+  if (!photoDataUrl) {
+    showToast('Upload a photo before downloading.');
+    return;
+  }
+
+  const btn = els.downloadPdfBtn;
+  btn.classList.add('loading');
+
+  try {
+    generateQR();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    const frontCanvas = await html2canvas(els.idCardFront, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      scrollX: -window.scrollX,
+      scrollY: -window.scrollY,
+      logging: false,
+    });
+
+    const backCanvas = await html2canvas(els.idCardBack, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      scrollX: -window.scrollX,
+      scrollY: -window.scrollY,
+      logging: false,
+    });
+
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) {
+      showToast('Unable to create PDF. Library not loaded.');
+      return;
+    }
+
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 30;
+    const maxWidth = pageWidth - margin * 2;
+
+    const frontRatio = frontCanvas.width / frontCanvas.height;
+    const frontHeight = maxWidth / frontRatio;
+    doc.addImage(frontCanvas.toDataURL('image/png'), 'PNG', margin, margin, maxWidth, frontHeight);
+
+    doc.addPage();
+    const backRatio = backCanvas.width / backCanvas.height;
+    const backHeight = maxWidth / backRatio;
+    doc.addImage(backCanvas.toDataURL('image/png'), 'PNG', margin, margin, maxWidth, backHeight);
+
+    const safeName = (els.studentName.value.trim() || 'Student').replace(/\s+/g, '-');
+    doc.save(`Phanic-ID-${els.studentId.value}-${safeName}.pdf`);
+    showToast('Combined PDF downloaded');
+  } catch (err) {
+    console.error(err);
+    showToast('PDF export failed. Try again.');
+  } finally {
+    btn.classList.remove('loading');
+  }
+}
+
 /* ============================================
    REMOTE VERIFY MODAL SNIPPET
    Copy this to phanicglobal.com to show confirmation when scanning the QR code.
@@ -622,7 +839,7 @@ function attachVerifyModalSnippet() {
 
   const overlay = document.createElement('div');
   overlay.id = 'verifyOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(5px);z-index:9998;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(4px);z-index:9998;pointer-events:none;';
 
   const modal = document.createElement('div');
   modal.id = 'verifyModal';

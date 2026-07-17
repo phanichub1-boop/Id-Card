@@ -21,6 +21,7 @@
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     <link rel="icon" type="image/x-icon" href="images/Logoa.png">
 
@@ -73,6 +74,14 @@
             Verify Student
           </button>
           <span class="id-status" id="verificationStatus" aria-live="polite">Not verified</span>
+        </div>
+
+        <div class="form-group">
+          <label for="orientationSelect">Card Orientation</label>
+          <select id="orientationSelect">
+            <option value="landscape">Landscape</option>
+            <option value="portrait">Portrait</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -143,6 +152,18 @@
           </div>
         </div>
 
+        <div class="form-group profile-group">
+          <label for="profileSelect">Saved Profiles</label>
+          <div class="profile-controls">
+            <select id="profileSelect">
+              <option value="">Select saved profile</option>
+            </select>
+            <button class="btn btn-secondary" id="saveProfileBtn" type="button" disabled>
+              Save Profile
+            </button>
+          </div>
+        </div>
+
         <button class="btn btn-primary" id="updateBtn" type="button" disabled>
           <span class="btn-text">Update Preview</span>
           <span class="spinner" aria-hidden="true"></span>
@@ -182,6 +203,25 @@
               <line x1="12" y1="15" x2="12" y2="3" />
             </svg>
             Download Back
+          </button>
+          <button class="btn btn-secondary" id="downloadPdfBtn" type="button" disabled>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M6 2h7l5 5v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
+              <polyline points="13 2 13 7 18 7" />
+              <path d="M16 13h-8" />
+              <path d="M16 17h-8" />
+              <path d="M10 9h1" />
+            </svg>
+            Download PDF
           </button>
           <button class="btn btn-secondary" id="printBtn" type="button" disabled>
             <svg
