@@ -9,38 +9,47 @@
    <script>
    (function(){
      const p = new URLSearchParams(location.search);
-     if(p.get('verify') !== 'student') return;
+     if (p.get('verify') !== 'student') return;
+
      const studentName = decodeURIComponent(p.get('name') || 'Unknown Student');
-     const studentId   = decodeURIComponent(p.get('sid')  || 'Unknown ID');
-     
+     const studentId = decodeURIComponent(p.get('sid') || 'Unknown ID');
+     const photo = p.get('photo') || '';
+     const hasPhoto = Boolean(photo && /^data:image\//.test(photo));
+
      document.getElementById('verifyModal')?.remove();
      document.getElementById('verifyOverlay')?.remove();
-     
+
      const overlay = document.createElement('div');
      overlay.id = 'verifyOverlay';
      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(5px);z-index:9998;';
-     
+
      const modal = document.createElement('div');
      modal.id = 'verifyModal';
      modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:24px;padding:2.5rem;width:90%;max-width:420px;z-index:9999;box-shadow:0 25px 50px rgba(0,0,0,0.3);text-align:center;font-family:Satoshi,Inter,sans-serif;';
-     if(document.documentElement.getAttribute('data-theme')==='dark'){ modal.style.background='#1a1a1a'; modal.style.color='#f9fafb'; }
-     
+     if (document.documentElement.getAttribute('data-theme') === 'dark') {
+       modal.style.background = '#1a1a1a';
+       modal.style.color = '#f9fafb';
+     }
+
      modal.innerHTML = `
        <div style="width:64px;height:64px;background:#d1fae5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;color:#059669;">
          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
        </div>
        <h3 style="font-size:1.25rem;font-weight:800;margin-bottom:.75rem;">Student Verified</h3>
-       <p style="font-size:1rem;line-height:1.7;color:#4b5563;margin-bottom:1.75rem;">
-         Student name <strong style="color:#111827;">${studentName}</strong> with student id <strong style="color:#b91c3c;">${studentId}</strong> is a student of <strong style="color:#111827;">Phanic Computer Hub</strong>.
+       <p style="font-size:1rem;line-height:1.7;color:#4b5563;margin-bottom:1.25rem;">
+         <strong style="color:#111827;">${studentName}</strong><br />
+         ID <strong style="color:#b91c3c;">${studentId}</strong><br />
+         is a student of <strong style="color:#111827;">Phanic Computer Hub</strong>.
        </p>
+       ${hasPhoto ? `<img src="${photo}" alt="Student passport" style="width:96px;height:96px;object-fit:cover;border-radius:18px;border:2px solid #fde2e8;margin:0 auto 1rem;display:block;" />` : ''}
        <button id="closeVerify" style="padding:.875rem 1.75rem;background:linear-gradient(135deg,#9e1b32,#b91c3c);color:#fff;border:none;border-radius:12px;font-weight:700;font-size:.95rem;cursor:pointer;">Close Verification</button>
      `;
-     
+
      document.body.appendChild(overlay);
      document.body.appendChild(modal);
      document.getElementById('closeVerify').onclick = () => {
        overlay.remove(); modal.remove();
-       window.history.replaceState({},'',location.pathname);
+       window.history.replaceState({}, '', location.pathname);
      };
    })();
    </script>
@@ -531,15 +540,31 @@ function updatePreview() {
   const rawId = els.studentId.value.trim().toUpperCase();
   const id = normalizeStudentId(rawId) || rawId || 'PHA001';
   const addr = (els.studentAddress.value.trim() || 'ADDRESS LINE').toUpperCase();
+  const displayId = authState.verified ? id : maskStudentId(id);
 
   els.dispName.textContent = name;
-  els.dispId.textContent = id;
+  els.dispId.textContent = displayId;
   els.dispAddress.textContent = addr;
-  document.getElementById('backRegNumber').textContent = id;
+  document.getElementById('backRegNumber').textContent = displayId;
 
-  generateQR();
+  if (authState.verified) {
+    void generateQR();
+  } else {
+    els.qrBox.innerHTML = '';
+  }
+
   els.statusBadge.textContent = 'Updated';
   setTimeout(() => els.statusBadge.textContent = 'Ready', 1200);
+}
+
+function maskStudentId(id) {
+  const raw = String(id || 'PHA001').toUpperCase();
+  if (!raw.startsWith('PHA') || raw.length <= 6) {
+    return raw.replace(/.(?=.{2})/g, '*');
+  }
+  const visible = raw.slice(0, 5);
+  const masked = '*'.repeat(raw.length - visible.length);
+  return `${visible}${masked}`;
 }
 
 function normalizeStudentId(value) {
@@ -625,14 +650,62 @@ async function verifyStudent() {
   }
 }
 
-function buildVerifyUrl() {
+async function buildVerifyUrl() {
   const base = 'https://phanicglobal.com/';
   const params = new URLSearchParams({
     verify: 'student',
     name: els.studentName.value.trim() || 'Student',
     sid: normalizeStudentId(els.studentId.value) || 'PHA001',
   });
+
+  const photoParam = await getQrPhotoParam();
+  if (photoParam) {
+    params.set('photo', photoParam);
+  }
+
   return `${base}?${params.toString()}`;
+}
+
+function getQrPhotoParam() {
+  if (!photoDataUrl || !photoDataUrl.startsWith('data:image/')) {
+    return Promise.resolve('');
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const sizes = [48, 32, 24];
+      const qualities = [0.45, 0.3, 0.2];
+      const targetMaxLength = 1200;
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve('');
+        return;
+      }
+
+      for (const size of sizes) {
+        const scale = Math.min(1, size / Math.max(img.width, img.height));
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        for (const quality of qualities) {
+          const compactPhoto = canvas.toDataURL('image/jpeg', quality);
+          if (compactPhoto.length <= targetMaxLength) {
+            resolve(compactPhoto);
+            return;
+          }
+        }
+      }
+
+      resolve('');
+    };
+    img.onerror = () => resolve('');
+    img.src = photoDataUrl;
+  });
 }
 
 function getStoredProfiles() {
@@ -681,7 +754,6 @@ function updateSaveProfileButton() {
 function saveProfile() {
   const studentId = normalizeStudentId(els.studentId.value.trim());
   const studentName = els.studentName.value.trim();
-  const studentEmail = els.studentEmail.value.trim();
   const studentAddress = els.studentAddress.value.trim();
   const orientation = els.orientationSelect.value;
   const photo = photoDataUrl || '';
@@ -698,7 +770,6 @@ function saveProfile() {
     id: profileId,
     studentId,
     studentName,
-    studentEmail,
     studentAddress,
     orientation,
     photoDataUrl: photo,
@@ -729,7 +800,7 @@ function loadProfileFromSelect() {
   }
 
   els.studentId.value = profile.studentId || '';
-  els.studentEmail.value = profile.studentEmail || '';
+  els.studentEmail.value = '';
   els.studentName.value = profile.studentName || '';
   els.studentAddress.value = profile.studentAddress || '';
   if (profile.orientation) {
@@ -772,7 +843,7 @@ async function downloadCombinedPdf() {
   btn.classList.add('loading');
 
   try {
-    generateQR();
+    await generateQR();
     await new Promise((resolve) => setTimeout(resolve, 350));
 
     const frontCanvas = await html2canvas(els.idCardFront, {
@@ -836,24 +907,27 @@ function attachVerifyModalSnippet() {
 
   const studentName = decodeURIComponent(params.get('name') || 'Unknown Student');
   const studentId = decodeURIComponent(params.get('sid') || 'Unknown ID');
+  const photo = params.get('photo') || '';
+  const hasPhoto = Boolean(photo && /^data:image\//.test(photo));
 
   const overlay = document.createElement('div');
   overlay.id = 'verifyOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.25);backdrop-filter:blur(4px);z-index:9998;pointer-events:none;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.12);backdrop-filter:blur(3px);z-index:9998;pointer-events:none;';
 
   const modal = document.createElement('div');
   modal.id = 'verifyModal';
-  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:24px;padding:2.5rem;width:90%;max-width:420px;z-index:9999;box-shadow:0 25px 50px rgba(0,0,0,0.3);text-align:center;font-family:Satoshi,Inter,sans-serif;';
+  modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:24px;padding:2.5rem;width:90%;max-width:420px;z-index:9999;box-shadow:0 25px 50px rgba(0,0,0,0.18);text-align:center;font-family:Satoshi,Inter,sans-serif;';
   modal.innerHTML = `
     <div style="width:64px;height:64px;background:#d1fae5;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;color:#059669;">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
     </div>
     <h3 style="font-size:1.3rem;font-weight:800;margin-bottom:0.85rem;color:#111827;">Student Verified</h3>
-    <p style="font-size:1rem;line-height:1.75;color:#374151;margin-bottom:1.75rem;">
+    <p style="font-size:1rem;line-height:1.75;color:#374151;margin-bottom:1.25rem;">
       <strong style="color:#111827;">${studentName}</strong><br />
       ID <strong style="color:#b91c3c;">${studentId}</strong><br />
       is a bonafide student of <strong>Phanic Computer Hub</strong>.
     </p>
+    ${hasPhoto ? `<img src="${photo}" alt="Student passport" style="width:96px;height:96px;object-fit:cover;border-radius:18px;border:2px solid #fde2e8;margin:0 auto 1rem;display:block;" />` : ''}
     <button id="closeVerify" style="padding:0.9rem 1.75rem;background:linear-gradient(135deg,#9e1b32,#b91c3c);color:#fff;border:none;border-radius:14px;font-weight:700;font-size:0.95rem;cursor:pointer;">Close</button>
   `;
 
@@ -868,9 +942,9 @@ function attachVerifyModalSnippet() {
 
 document.addEventListener('DOMContentLoaded', attachVerifyModalSnippet);
 
-function generateQR() {
+async function generateQR() {
   els.qrBox.innerHTML = '';
-  const url = buildVerifyUrl();
+  const url = await buildVerifyUrl();
   currentQR = new QRCode(els.qrBox, {
     text: url,
     width: 120,
@@ -906,7 +980,7 @@ async function downloadSide(side) {
   
   btn.classList.add('loading');
   try {
-    generateQR();
+    await generateQR();
     await new Promise(r => setTimeout(r, 350));
 
     const canvas = await html2canvas(target, {
@@ -974,10 +1048,10 @@ function closeShareModal() {
   els.shareModal.setAttribute('aria-hidden', 'true');
 }
 
-function getShareData() {
+async function getShareData() {
   const name = els.studentName.value.trim() || 'Student';
   const sid = els.studentId.value;
-  const url = buildVerifyUrl();
+  const url = await buildVerifyUrl();
   return {
     title: `Phanic Computer Hub — ${name}`,
     text: `Verify student: ${name} (${sid}) at Phanic Computer Hub.`,
@@ -985,15 +1059,15 @@ function getShareData() {
   };
 }
 
-function shareToWhatsApp() {
-  const { text, url } = getShareData();
+async function shareToWhatsApp() {
+  const { text, url } = await getShareData();
   const msg = encodeURIComponent(`${text}\n\n${url}`);
   window.open(`https://wa.me/?text=${msg}`, '_blank');
   closeShareModal();
 }
 
-function shareToEmail() {
-  const { title, text, url } = getShareData();
+async function shareToEmail() {
+  const { title, text, url } = await getShareData();
   const body = encodeURIComponent(`${text}\n\n${url}`);
   window.location.href = `mailto:?subject=${encodeURIComponent(title)}&body=${body}`;
   closeShareModal();
@@ -1001,7 +1075,8 @@ function shareToEmail() {
 
 async function shareToClipboard() {
   try {
-    await navigator.clipboard.writeText(getShareData().url);
+    const { url } = await getShareData();
+    await navigator.clipboard.writeText(url);
     showToast('Verification link copied');
   } catch {
     showToast('Unable to copy');
