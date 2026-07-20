@@ -586,6 +586,7 @@ function setVerifiedState(studentId, email) {
   authState.email = email;
   updateVerificationStatus();
   toggleFormControls(true);
+  updatePreview();
 }
 
 function setUnverifiedState(message = 'Not verified') {
@@ -594,6 +595,7 @@ function setUnverifiedState(message = 'Not verified') {
   authState.email = null;
   updateVerificationStatus(message);
   toggleFormControls(false);
+  updatePreview();
 }
 
 function updateVerificationStatus(message) {
